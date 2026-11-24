@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .scraper import ambil_batch
 
+logger = logging.getLogger(__name__)
 
 BATCH_SECONDS = 120
 
@@ -26,13 +27,13 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 lengkap = ambil_batch(args.output)
             except Exception:
-                logging.exception("Batch gagal")
+                logger.exception("Batch gagal")
                 lengkap = False
             if args.once:
                 return 0 if lengkap else 1
             time.sleep(max(0, BATCH_SECONDS - (time.monotonic() - mulai)))
     except KeyboardInterrupt:
-        logging.info("Batch dihentikan.")
+        logger.info("Batch dihentikan.")
         return 0
 
 

@@ -4,6 +4,7 @@ from pathlib import Path
 import pandas as pd
 import yfinance as yf
 
+logger = logging.getLogger(__name__)
 
 TICKERS = ("EXCL.JK", "ISAT.JK", "TLKM.JK")
 TIMEZONE = "Asia/Jakarta"
@@ -28,7 +29,7 @@ def ambil_batch(output: Path) -> bool:
     frames = []
     for ticker in TICKERS:
         if data.empty or ticker not in data.columns.get_level_values(0):
-            logging.warning("Tidak ada data untuk %s", ticker)
+            logger.warning("Tidak ada data untuk %s", ticker)
             continue
 
         frame = data[ticker][OHLCV].dropna().copy()
@@ -36,7 +37,7 @@ def ambil_batch(output: Path) -> bool:
         # Jangan simpan candle yang belum berakhir saat permintaan dimulai.
         frame = frame.loc[frame.index + pd.Timedelta(minutes=2) <= mulai_batch]
         if frame.empty:
-            logging.warning("Tidak ada candle yang sudah berakhir untuk %s", ticker)
+            logger.warning("Tidak ada candle yang sudah berakhir untuk %s", ticker)
             continue
 
         frame.columns = [kolom.lower() for kolom in OHLCV]
@@ -59,6 +60,6 @@ def ambil_batch(output: Path) -> bool:
     sementara = output.with_name(output.name + ".tmp")
     gabungan.to_csv(sementara, index=False)
     sementara.replace(output)
-    logging.info("Batch: %d/%d ticker; CSV: %d candle (%s)",
-                 len(frames), len(TICKERS), len(gabungan), output)
+    logger.info("Batch: %d/%d ticker; CSV: %d candle (%s)",
+                len(frames), len(TICKERS), len(gabungan), output)
     return len(frames) == len(TICKERS)
