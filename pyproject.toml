@@ -1,0 +1,18 @@
+[project]
+name = "batch-saham"
+version = "0.1.0"
+description = "Batch candle saham 2 menit dari Yahoo Finance"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pandas>=2.2,<4",
+    "tzdata",
+    "yfinance>=0.2.65,<2",
+]
+
+[dependency-groups]
+dev = ["pytest>=8,<10"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

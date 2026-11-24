@@ -1,0 +1,43 @@
+name: CD
+
+on:
+  workflow_run:
+    workflows:
+      - CI - Test and Build
+    types:
+      - completed
+    branches:
+      - main
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to Azure
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - name: Build and push image to ACR
+        run: |
+          az acr build \
+            --registry "${{ vars.ACR_NAME }}" \
+            --image yahoo-finance-scraper:${{ github.event.workflow_run.head_sha }} \
+            .
+      - name: Deploy to Azure Container Apps Job
+        run: |
+          az containerapp job update \
+            --name "${{ vars.CONTAINER_APP_JOB_NAME }}" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --image "${{ vars.ACR_LOGIN_SERVER }}/yahoo-finance-scraper:${{ github.event.workflow_run.head_sha }}"
+
+      - name: Logout Azure
+        if: always()
+        run: az logout

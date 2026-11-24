@@ -1,0 +1,23 @@
+tugas cicd/
+│
+├── src/
+│   ├── __init__.py
+│   ├── scraper.py
+│   └── main.py
+│
+├── tests/
+│   ├── test_scraper.py
+│   └── test_main.py
+│
+├── .github/
+│   └── workflows/
+│       ├── ci.yml
+│       └── cd.yml
+│
+├── Dockerfile
+├── .dockerignore
+├── pyproject.toml
+├── uv.lock
+├── .env.example
+├── .gitignore
+└── README.md
