@@ -25,6 +25,7 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
       - name: Login to Azure
+        id: azure_login
         uses: azure/login@v2
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
@@ -44,5 +45,5 @@ jobs:
             --image "${{ vars.ACR_LOGIN_SERVER }}/yahoo-finance-scraper:${{ github.event.workflow_run.head_sha }}"
 
       - name: Logout Azure
-        if: always()
+        if: always() && steps.azure_login.outcome == 'success'
         run: az logout
