@@ -12,18 +12,62 @@ permissions:
   contents: read
 
 jobs:
-  deploy:
-    name: Deploy to Azure
+  publish:
+    name: Publish image to GHCR
     if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
+      packages: write
+    outputs:
+      image: ${{ steps.image.outputs.ref }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - name: Set image reference
+        id: image
+        env:
+          IMAGE_TAG: ${{ github.event.workflow_run.head_sha }}
+        run: echo "ref=ghcr.io/${GITHUB_REPOSITORY,,}:$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push image
+        env:
+          IMAGE: ${{ steps.image.outputs.ref }}
+        run: |
+          docker build --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" --tag "$IMAGE" .
+          docker push "$IMAGE"
+
+  deploy:
+    name: Deploy to Azure
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    env:
+      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      CONTAINER_APP_JOB_NAME: ${{ vars.CONTAINER_APP_JOB_NAME }}
+    steps:
+      - name: Validate deployment variables
+        shell: bash
+        run: |
+          missing=0
+          for name in AZURE_RESOURCE_GROUP CONTAINER_APP_JOB_NAME; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Set the $name repository variable in Settings > Secrets and variables > Actions > Variables."
+              missing=1
+            fi
+          done
+          if (( missing )); then
+            exit 1
+          fi
       - name: Login to Azure
         id: azure_login
         uses: azure/login@v2
@@ -31,18 +75,14 @@ jobs:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-      - name: Build and push image to ACR
-        run: |
-          az acr build \
-            --registry "${{ vars.ACR_NAME }}" \
-            --image yahoo-finance-scraper:${{ github.event.workflow_run.head_sha }} \
-            .
       - name: Deploy to Azure Container Apps Job
+        env:
+          IMAGE: ${{ needs.publish.outputs.image }}
         run: |
           az containerapp job update \
-            --name "${{ vars.CONTAINER_APP_JOB_NAME }}" \
-            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
-            --image "${{ vars.ACR_LOGIN_SERVER }}/yahoo-finance-scraper:${{ github.event.workflow_run.head_sha }}"
+            --name "$CONTAINER_APP_JOB_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --image "$IMAGE"
 
       - name: Logout Azure
         if: always() && steps.azure_login.outcome == 'success'
