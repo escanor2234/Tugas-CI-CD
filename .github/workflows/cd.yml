@@ -8,7 +8,6 @@ on:
       - completed
     branches:
       - main
-
 permissions:
   contents: read
 
@@ -17,17 +16,14 @@ jobs:
     name: Deploy to Azure
     if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
-
     permissions:
       contents: read
       id-token: write
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
-
       - name: Login to Azure
         id: azure_login
         uses: azure/login@v2
@@ -35,14 +31,12 @@ jobs:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-
       - name: Build and push image to ACR
         run: |
           az acr build \
             --registry "${{ vars.ACR_NAME }}" \
             --image yahoo-finance-scraper:${{ github.event.workflow_run.head_sha }} \
             .
-
       - name: Deploy to Azure Container Apps Job
         run: |
           az containerapp job update \
