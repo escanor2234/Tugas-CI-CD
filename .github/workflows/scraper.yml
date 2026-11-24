@@ -1,0 +1,80 @@
+name: Scraper
+
+on:
+  workflow_run:
+    workflows: [CD]
+    types: [completed]
+    branches: [main]
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: scraper-blob-csv
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    name: Run scraper in Azure Container Instances
+    if: |
+      github.ref == 'refs/heads/main' &&
+      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      id-token: write
+    env:
+      RESOURCE_GROUP: kelompok7
+      LOCATION: koreacentral
+      CONTAINER_GROUP: saham-${{ github.run_id }}-${{ github.run_attempt }}
+      STORAGE_ACCOUNT: tugastcbacicd
+      BLOB_CONTAINER: batch-saham
+    steps:
+      - name: Login to Azure
+        id: azure_login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Start Azure container
+        id: start
+        shell: bash
+        env:
+          IMAGE_TAG: ${{ github.event.workflow_run.head_sha || 'main' }}
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}:$IMAGE_TAG"
+          identity="/subscriptions/$(az account show --query id -o tsv)/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.ManagedIdentity/userAssignedIdentities/saham-scraper-aci"
+          az container create --resource-group "$RESOURCE_GROUP" --name "$CONTAINER_GROUP" \
+            --location "$LOCATION" --image "$image" --os-type Linux --cpu 1 --memory 1.5 \
+            --restart-policy Never --assign-identity "$identity" \
+            --command-line '/app/.venv/bin/python -m src.azure_batch' \
+            --environment-variables "STORAGE_ACCOUNT=$STORAGE_ACCOUNT" "BLOB_CONTAINER=$BLOB_CONTAINER" \
+              "MANAGED_IDENTITY_ID=$identity" --no-wait --output none
+
+      - name: Check container result
+        shell: bash
+        run: |
+          target=(--resource-group "$RESOURCE_GROUP" --name "$CONTAINER_GROUP")
+          for (( attempt=0; attempt<48; attempt++ )); do
+            status="$(az container show "${target[@]}" -o json)"
+            state="$(jq -r '.containers[0].instanceView.currentState.state' <<< "$status")"
+            if [[ "$state" == Terminated ]]; then
+              az container logs "${target[@]}" || true
+              [[ "$(jq -r '.containers[0].instanceView.currentState.exitCode' <<< "$status")" == 0 ]]
+              exit
+            fi
+            if [[ "$(jq -r '.provisioningState' <<< "$status")" == Failed ]]; then
+              break
+            fi
+            sleep 10
+          done
+          az container show "${target[@]}" --query 'containers[0].instanceView' -o json
+          echo '::error::ACI did not complete successfully within the wait period.'
+          exit 1
+
+      - name: Delete temporary container group
+        if: always() && steps.azure_login.outcome == 'success' && steps.start.outcome != 'skipped'
+        shell: bash
+        run: |
+          az container delete --resource-group "$RESOURCE_GROUP" --name "$CONTAINER_GROUP" --yes --output none
